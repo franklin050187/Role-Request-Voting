@@ -17,7 +17,7 @@ WORKDIR /app
 RUN wget https://github.com/franklin050187/Role-Request-Voting/archive/refs/heads/main.zip
 
 # Unzip the downloaded file
-RUN unzip Role-Request-Voting-main.zip && rm Role-Request-Voting-main.zip && mv Role-Request-Voting-main Role-Request-Voting
+RUN unzip main.zip && rm main.zip && mv Role-Request-Voting-main Role-Request-Voting
 
 # Change the working directory to the project directory
 WORKDIR /app/Role-Request-Voting
