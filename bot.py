@@ -1,29 +1,32 @@
+"""bot for role request"""
 import asyncio
-import discord
-import os
-import dotenv
-import logging
-import matplotlib.pyplot as plt
 import io
-from discord.ext import tasks
-from discord import Embed, Colour
+import logging
+import os
 from datetime import datetime, timezone
+
+import discord
+import dotenv
+import matplotlib.pyplot as plt
+from discord import Colour, Embed
+from discord.ext import tasks
+
+from app import RequestsManager
 from config import (
+    CHANNEL_ID,
     CHECK_TIME,
+    CLOSE_POST,
     DEFAULT_VOTE,
+    DEV_MODE,
+    LOG_FILE_NAME,
     PROMPT_AFTER_FIRST_FEEDBACK,
     PROMPT_NO_VOTERS_FOR_FEEDBACK,
     PROMPT_YES_VOTERS_FOR_FEEDBACK,
-    VOTE_TIME_PERIOD,
     ROLE_VOTES,
-    CHANNEL_ID,
-    DEV_MODE,
     THREAD_TAGS,
     VALID_ROLES,
-    LOG_FILE_NAME,
-    CLOSE_POST,
+    VOTE_TIME_PERIOD,
 )
-from app import RequestsManager
 from request import RoleRequest
 
 # SETUP AND INITIALIZATION
@@ -36,19 +39,17 @@ app.load_state()
 
 
 def setup_logger():
-    logger = logging.getLogger('bot_logger')
+    logger = logging.getLogger("bot_logger")
     if not logger.handlers:
         logger.setLevel(logging.INFO)
 
         file_handler = logging.FileHandler(LOG_FILE_NAME)
         file_handler.setLevel(logging.INFO)
-        file_handler.setFormatter(logging.Formatter(
-            "%(asctime)s - %(levelname)s - %(message)s"))
+        file_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
 
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.INFO)
-        console_handler.setFormatter(logging.Formatter(
-            "%(asctime)s - %(levelname)s - %(message)s"))
+        console_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
 
         logger.addHandler(file_handler)
         logger.addHandler(console_handler)
@@ -60,6 +61,7 @@ logger = setup_logger()
 
 
 ####################################
+
 
 class VoteView(discord.ui.View):
     def __init__(
@@ -96,14 +98,16 @@ class VoteView(discord.ui.View):
     async def no_button_callback(self, button, interaction):
         await self.handle_vote(interaction, "no")
 
-    @discord.ui.button(label="Cancel My Vote", style=discord.ButtonStyle.gray, custom_id="cancel_vote")
+    @discord.ui.button(
+        label="Cancel My Vote", style=discord.ButtonStyle.gray, custom_id="cancel_vote"
+    )
     async def cancel_button_callback(self, button, interaction):
         await self.cancel_vote(interaction)
 
     async def handle_vote(self, interaction: discord.Interaction, vote_type: str):
         """
         Handle a vote interaction.
-        Dependant on the 'PROMPT_NO_VOTERS_FOR_FEEDBACK', 'PROMPT_YES_VOTERS_FOR_FEEDBACK', 
+        Dependant on the 'PROMPT_NO_VOTERS_FOR_FEEDBACK', 'PROMPT_YES_VOTERS_FOR_FEEDBACK',
         and 'PROMPT_AFTER_FIRST_FEEDBACK' constants in config.py
 
         Args:
@@ -115,7 +119,9 @@ class VoteView(discord.ui.View):
 
         # People can't vote on their own requests
         if user.id == self.thread_owner.id and not DEV_MODE:
-            await interaction.response.send_message("You can't vote on your own request!", ephemeral=True)
+            await interaction.response.send_message(
+                "You can't vote on your own request!", ephemeral=True
+            )
             return
 
         try:
@@ -128,11 +134,14 @@ class VoteView(discord.ui.View):
             feedback = ""
 
             # Figure out when to send the modal
-            if ((vote_type == "no" and PROMPT_NO_VOTERS_FOR_FEEDBACK)
-                    or (vote_type == "yes" and PROMPT_YES_VOTERS_FOR_FEEDBACK)) \
-                    and (not request_has_feedback or PROMPT_AFTER_FIRST_FEEDBACK) \
-                    and not user_submitted_feedback:
-
+            if (
+                (
+                    (vote_type == "no" and PROMPT_NO_VOTERS_FOR_FEEDBACK)
+                    or (vote_type == "yes" and PROMPT_YES_VOTERS_FOR_FEEDBACK)
+                )
+                and (not request_has_feedback or PROMPT_AFTER_FIRST_FEEDBACK)
+                and not user_submitted_feedback
+            ):
                 # Create and show the modal
                 modal = VoteModal(vote_type)
                 await interaction.response.send_modal(modal)
@@ -148,8 +157,9 @@ class VoteView(discord.ui.View):
             role_votes = self._get_user_votes(user, request)
 
             # Negate are 'no' votes, positive are 'yes'
-            app.vote_on_request(self.thread_id,
-                                user.id, role_votes * (-1 if vote_type == "no" else 1))
+            app.vote_on_request(
+                self.thread_id, user.id, role_votes * (-1 if vote_type == "no" else 1)
+            )
             await self._update_displayed_member_count()
 
             response_message = f"You {'changed your vote to' if vote_changed else 'voted'} {vote_type.capitalize()} with {role_votes} votes."
@@ -162,7 +172,8 @@ class VoteView(discord.ui.View):
 
         except Exception as e:
             logger.error(
-                f"Unexpected error handling vote for user {user.id} in thread {self.thread_id}: {str(e)}")
+                f"Unexpected error handling vote for user {user.id} in thread {self.thread_id}: {str(e)}"
+            )
             await interaction.respond("An unexpected error occurred.", ephemeral=True)
 
     async def cancel_vote(self, interaction: discord.Interaction):
@@ -194,12 +205,13 @@ class VoteView(discord.ui.View):
 
         except Exception as e:
             logger.error(
-                f"Unexpected error cancelling vote for user {user_id} in thread {thread_id}: {str(e)}")
+                f"Unexpected error cancelling vote for user {user_id} in thread {thread_id}: {str(e)}"
+            )
             await interaction.respond("An unexpected error occurred.", ephemeral=True)
 
     async def submit_feedback(self, interaction: discord.Interaction, user_id: int, feedback: str):
         """
-        Submits feedback for a role request. 
+        Submits feedback for a role request.
         Saves the feedback to the database and sends it anonymously.
 
         Args:
@@ -245,7 +257,9 @@ class VoteView(discord.ui.View):
         thread = bot.get_channel(self.thread_id)
         request = app.get_request(self.thread_id)
         vote_message_id = request.bot_message_id
-        vote_message = bot.get_message(vote_message_id) or await thread.fetch_message(vote_message_id)
+        vote_message = bot.get_message(vote_message_id) or await thread.fetch_message(
+            vote_message_id
+        )
 
         # Edit the member count on the embed
         embed = vote_message.embeds[0]
@@ -278,7 +292,7 @@ class VoteModal(discord.ui.Modal):
             style=discord.InputTextStyle.long,
             placeholder="Enter your feedback here...",
             required=False,
-            max_length=3000
+            max_length=3000,
         )
 
         self.add_item(self.feedback)
@@ -307,23 +321,26 @@ async def _finish_vote(thread: discord.Thread, request: RoleRequest):
         outcome = "Approved" if request.result() is True else "Denied"
 
         total_votes = yes_votes + no_votes
-        yes_percentage = (yes_votes / total_votes) * \
-            100 if total_votes > 0 else 0
-        no_percentage = (no_votes / total_votes) * \
-            100 if total_votes > 0 else 0
+        yes_percentage = (yes_votes / total_votes) * 100 if total_votes > 0 else 0
+        no_percentage = (no_votes / total_votes) * 100 if total_votes > 0 else 0
         file = None
 
         if total_votes > 0:
             # Create a pie chart
             fig, ax = plt.subplots()
-            ax.pie([yes_votes, no_votes], labels=['Yes', 'No'], colors=['green', 'red'],
-                   autopct='%1.1f%%', startangle=90, textprops={'color': 'w', 'size': 'x-large'})
-            ax.axis('equal')
+            ax.pie(
+                [yes_votes, no_votes],
+                labels=["Yes", "No"],
+                colors=["green", "red"],
+                autopct="%1.1f%%",
+                startangle=90,
+                textprops={"color": "w", "size": "x-large"},
+            )
+            ax.axis("equal")
 
             # Save the plot to a BytesIO object with a transparent background
             buf = io.BytesIO()
-            plt.savefig(buf, format='png', bbox_inches='tight',
-                        pad_inches=0, transparent=True)
+            plt.savefig(buf, format="png", bbox_inches="tight", pad_inches=0, transparent=True)
             buf.seek(0)
 
             # Create a file from the BytesIO object
@@ -372,10 +389,8 @@ async def _finish_vote(thread: discord.Thread, request: RoleRequest):
         logger.info("Edited vote message.")
 
         # Add the tag "Approved" or "Denied" to the thread, then close it
-        approved_tag = discord.utils.get(
-            thread.parent.available_tags, name=THREAD_TAGS["Approved"])
-        denied_tag = discord.utils.get(
-            thread.parent.available_tags, name=THREAD_TAGS["Denied"])
+        approved_tag = discord.utils.get(thread.parent.available_tags, name=THREAD_TAGS["Approved"])
+        denied_tag = discord.utils.get(thread.parent.available_tags, name=THREAD_TAGS["Denied"])
 
         if outcome == "Approved" and approved_tag and approved_tag not in thread.applied_tags:
             await thread.edit(applied_tags=thread.applied_tags + [approved_tag])
@@ -393,8 +408,7 @@ async def _finish_vote(thread: discord.Thread, request: RoleRequest):
         )
 
     except discord.NotFound:
-        logger.error(
-            f"Vote message not found for request {request.thread_id}.")
+        logger.error(f"Vote message not found for request {request.thread_id}.")
     except discord.HTTPException as e:
         logger.error(f"Failed to edit vote message: {e}")
     except Exception as e:
@@ -413,8 +427,7 @@ async def end_vote(view: VoteView):
 
     view.check_time.stop()
     request: RoleRequest = app.get_request(view.thread_id)
-    logger.info(
-        f"# Ending vote with thread id '{view.thread_id}': \"{request.title}\"\n")
+    logger.info(f"# Ending vote with thread id '{view.thread_id}': \"{request.title}\"\n")
 
     # Remove the role request from the active list
     app.close_request(view.thread_id)
@@ -432,7 +445,9 @@ async def end_vote(view: VoteView):
 
     try:
         if not give_role:
-            await thread.send(f"Sorry, {view.thread_owner.mention}! Your application for {request.role} has been denied.")
+            await thread.send(
+                f"Sorry, {view.thread_owner.mention}! Your application for {request.role} has been denied."
+            )
             await _finish_vote(thread, request)
             return
 
@@ -441,28 +456,31 @@ async def end_vote(view: VoteView):
         role = discord.utils.get(guild.roles, name=request.role)
 
         if not role:
-            logger.error(
-                f"Error: Role '{request.role}' not found in the server.")
+            logger.error(f"Error: Role '{request.role}' not found in the server.")
             await thread.send(f"Error: Role '{request.role}' not found in the server.")
             await _finish_vote(thread, request)
             return
 
         # Get the member from the user (yes it's confusing)
-        member = guild.get_member(view.thread_owner.id) or await guild.fetch_member(view.thread_owner.id)
+        member = guild.get_member(view.thread_owner.id) or await guild.fetch_member(
+            view.thread_owner.id
+        )
 
         if not member:
-            logger.error(
-                f"Error: Member '{view.thread_owner.mention}' not found in the server.")
-            await thread.send(f"Error: Member '{view.thread_owner.mention}' not found in the server.")
+            logger.error(f"Error: Member '{view.thread_owner.mention}' not found in the server.")
+            await thread.send(
+                f"Error: Member '{view.thread_owner.mention}' not found in the server."
+            )
             await _finish_vote(thread, request)
             return
 
         # Add the role to the user if possible
-        logger.info(
-            f"Adding role '{request.role}' to {view.thread_owner.mention}...")
+        logger.info(f"Adding role '{request.role}' to {view.thread_owner.mention}...")
         if member.id == member.guild.owner_id:
             logger.error("Error: Cannot modify roles of the server owner.")
-            await thread.send(f"Error: Cannot modify roles of the server owner, {view.thread_owner.mention}.")
+            await thread.send(
+                f"Error: Cannot modify roles of the server owner, {view.thread_owner.mention}."
+            )
             await _finish_vote(thread, request)
             return
         else:
@@ -506,8 +524,10 @@ async def on_ready():
         thread_title = request.title
         thread_id = request.thread_id
         end_time = request.end_time
-        bot.add_view(view=VoteView(thread_owner, thread_id,
-                     thread_title, end_time), message_id=request.bot_message_id)
+        bot.add_view(
+            view=VoteView(thread_owner, thread_id, thread_title, end_time),
+            message_id=request.bot_message_id,
+        )
 
     logger.info("Loaded all active role requests!")
 
@@ -535,8 +555,7 @@ async def _init_request(thread: discord.Thread):
     try:
         # Can throw ValueError if the role in the title is invalid
         # Won't throw if the role was found in the tags
-        app.add_request(thread.owner_id, thread_id,
-                        thread_title, end_time, role)
+        app.add_request(thread.owner_id, thread_id, thread_title, end_time, role)
     except Exception as e:
         logger.error(f"Error when creating role request: {e}")
         await thread.send(f"Error when creating role request: {e}")
@@ -551,7 +570,8 @@ async def _init_request(thread: discord.Thread):
     # People can't apply for a role they already have
     if request.role in [role.name for role in owner_m.roles] and not DEV_MODE:
         logger.error(
-            f"{owner.mention} tried to create a request for {request.role} but they already have it.")
+            f"{owner.mention} tried to create a request for {request.role} but they already have it."
+        )
         app.remove_request(thread_id)
         await thread.send(f"Error: You already have the role {request.role}.")
         return
@@ -596,18 +616,21 @@ async def _init_request(thread: discord.Thread):
             app.update_bot_message_id(thread_id, vote_message.id)
             break
         except Exception as e:
-            logger.error(
-                f"Error when sending role request message: {e}\nTrying again.")
+            logger.error(f"Error when sending role request message: {e}\nTrying again.")
             n += 1
     else:
         logger.error(
-            f"Failed to send role request message in {thread_id} after {n} tries. Deleting request.")
+            f"Failed to send role request message in {thread_id} after {n} tries. Deleting request."
+        )
         app.remove_request(thread_id)
-        await thread.send(f"Failed to send role request message in {thread_id} after {n} tries. Deleting request.")
+        await thread.send(
+            f"Failed to send role request message in {thread_id} after {n} tries. Deleting request."
+        )
         return
 
     logger.info(
-        f"Created new role request for '{request.role}' in '{thread_id}' by '{owner.mention}'.")
+        f"Created new role request for '{request.role}' in '{thread_id}' by '{owner.mention}'."
+    )
 
 
 @bot.event
@@ -628,11 +651,8 @@ dotenv.load_dotenv()
 TOKEN = os.getenv("Discord_Bot_Token")
 
 # Cogs
-cogs_list = [
-    'open_cmds',
-    'restricted_cmds'
-]
+cogs_list = ["open_cmds", "restricted_cmds"]
 for cog in cogs_list:
-    bot.load_extension(f'cogs.{cog}')
+    bot.load_extension(f"cogs.{cog}")
 
 bot.run(TOKEN)
